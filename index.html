@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <title>날씨 시계</title>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    html, body {
+      width:100%; height:100%;
+      background:#000;
+      color:#fff;
+      font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;
+      overflow:hidden;
+      -webkit-tap-highlight-color:transparent;
+      -webkit-text-size-adjust:100%;
+    }
+
+    /* 세로모드 안내 */
+    .rotate-msg {
+      display:none;
+      position:absolute;
+      inset:0;
+      background:#000;
+      color:rgba(255,255,255,0.6);
+      font-size:16px;
+      align-items:center;
+      justify-content:center;
+      flex-direction:column;
+      gap:14px;
+      text-align:center;
+      z-index:999;
+    }
+    .rotate-msg span { font-size:48px; }
+    @media (orientation:portrait) { .rotate-msg { display:flex; } }
+
+    /* 전체 래퍼 — safe-area + 주소창 여백 대응 */
+    .wrapper {
+      width:100vw;
+      height:100dvh;
+      display:flex;
+      flex-direction:column;
+      padding:
+        env(safe-area-inset-top, 0px)
+        env(safe-area-inset-right, 16px)
+        env(safe-area-inset-bottom, 0px)
+        env(safe-area-inset-left, 16px);
+    }
+
+    /* 3구획 레이아웃 */
+    .main {
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      padding:8px 16px 12px;
+      min-height:0;
+    }
+
+    /* 상단: 날씨 + 시계 */
+    .top-row {
+      flex:1 1 0;
+      display:flex;
+      gap:8px;
+      min-height:0;
+    }
+
+    /* 공통 카드 */
+    .card {
+      background:rgba(255,255,255,0.08);
+      border:0.5px solid rgba(255,255,255,0.13);
+      border-radius:18px;
+    }
+
+    /* ── 날씨 카드 ── */
+    .wx-card {
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      padding:14px 18px;
+      min-width:0;
+    }
+    .wx-city { font-size:clamp(20px,2.4vw,26px); color:rgba(255,255,255,0.55); font-weight:400; }
+    .wx-main { display:flex; align-items:center; gap:10px; }
+    .wx-emo  { font-size:clamp(36px,5.5vw,52px); line-height:1; }
+    .wx-tmp  {
+      font-size:clamp(62px,9.75vw,94px);
+      font-weight:200;
+      letter-spacing:-3px;
+      line-height:1;
+    }
+    .wx-sub  { display:flex; flex-direction:column; gap:4px; justify-content:center; margin-left:4px; }
+    .wx-desc { font-size:clamp(12px,1.5vw,16px); color:rgba(255,255,255,0.72); }
+    .wx-rng  { font-size:clamp(20px,2.4vw,26px); color:rgba(255,255,255,0.5); font-weight:400; }
+    
+    .wx-det  { display:flex; gap:20px; flex-wrap:wrap; margin-top:4px; }
+    .di { display:flex; flex-direction:column; gap:2px; }
+    .dl { font-size:clamp(16px,2vw,20px); color:rgba(255,255,255,0.4); }
+    .dv { font-size:clamp(22px,2.8vw,26px); font-weight:500; color:rgba(255,255,255,0.85); }
+
+    /* ── 시계 카드 ── */
+    .clock-card {
+      flex:0 0 52%;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:12px;
+      padding:8px 16px;
+    }
+    .c-row { display:flex; align-items:baseline; gap:6px; }
+    .c-time {
+      font-size:clamp(102px,16vw,160px);
+      font-weight:200;
+      letter-spacing:-2px;
+      line-height:1;
+    }
+    .c-colon {
+      animation: blink 1s steps(1, end) infinite;
+      font-weight: 300;
+      margin: 0 16px;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .c-ap {
+      font-size:clamp(15px,2vw,20px);
+      color:rgba(255,255,255,0.48);
+      font-weight:300;
+      letter-spacing:1px;
+      margin-top:14px;
+    }
+    
+    /* 💡 [대폭 수정] 년월일과 요일을 한 줄로 나란히 배치하기 위한 컨테이너 */
+    .c-date-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px; /* 년월일과 요일 사이의 간격 */
+    }
+    
+    /* 💡 [수정] 년월일 글자크기 및 스타일 지정 */
+    .c-ymd { font-size:clamp(24px,3vw,30px); color:rgba(255,255,255,0.72); font-weight:300; }
+    
+    /* 💡 [수정] 요일을 년월일과 똑같은 크기(clamp 수치 일치)로 조정하고 나란히 위치 */
+    .c-wd  { font-size:clamp(24px,3vw,30px); color:rgba(255,255,255,0.72); font-weight:300; letter-spacing:0.5px; }
+
+    /* ── 💡 [수정] 하단 요일별 예보 바 (기존 크기 대비 70% 수준으로 축소 및 슬림화) ── */
+    .forecast-row {
+      flex:0 0 auto;
+      /* 💡 이전의 giant 크기에서 70% 수준인 높이 clamp(56px,10vh,74px)로 축소 */
+      height:clamp(56px,10vh,74px); 
+      display:flex;
+      align-items:center;
+      padding:0 12px;
+    }
+    .f-item {
+      flex:1;
+      display:flex; 
+      flex-direction:column; 
+      align-items:center; 
+      justify-content:center;
+      gap:3px; /* 💡 상하 간격 조밀하게 조정 */
+      height:100%;
+      border-right:0.5px solid rgba(255,255,255,0.07);
+      padding:2px 2px;
+    }
+    .f-item:last-child { border-right:none; }
+    
+    /* 💡 [수정] 예보 구성요소들도 전체적으로 70% 스케일에 맞추어 축소 */
+    .f-d  { font-size:clamp(11px,1.3vw,14px); color:rgba(255,255,255,0.6); font-weight:400; }
+    .f-e  { font-size:clamp(18px,2.2vw,24px); line-height:1; }
+    .f-hi { font-size:clamp(11px,1.3vw,14px); color:rgba(255,255,255,0.85); font-weight:500; }
+    .f-lo { font-size:clamp(9px,1.1vw,12px); color:rgba(255,255,255,0.4); }
+
+    /* 로딩/오류 오버레이 */
+    .overlay {
+      display:none;
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,0.72);
+      align-items:center;
+      justify-content:center;
+      flex-direction:column;
+      gap:12px;
+      font-size:14px;
+      color:rgba(255,255,255,0.7);
+      text-align:center;
+      padding:20px;
+      z-index:50;
+      white-space: pre-line;
+    }
+    .overlay.show { display:flex; }
+    .spinner {
+      width:32px; height:32px;
+      border:3px solid rgba(255,255,255,0.15);
+      border-top-color:#fff;
+      border-radius:50%;
+      animation:spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* 업데이트 타임스탬프 */
+    .updated {
+      font-size:9px;
+      color:rgba(255,255,255,0.28);
+      text-align:right;
+      padding-right:2px;
+      flex-shrink:0;
+    }
+  </style>
+</head>
+<body>
+
+<div class="rotate-msg">
+  <span>⟳</span>
+  기기를 가로로 돌려주세요
+</div>
+
+<div id="overlay" class="overlay show">
+  <div class="spinner"></div>
+  <div id="overlay-msg">위치 정보를 가져오는 중…</div>
+</div>
+
+<div class="wrapper">
+  <div class="main">
+
+    <div class="top-row">
+
+      <!-- 날씨 카드 -->
+      <div class="card wx-card">
+        <div class="wx-city" id="wx-city">위치 확인 중…</div>
+        <div class="wx-main">
+          <div class="wx-emo" id="wx-emo">–</div>
+          <div class="wx-tmp" id="wx-tmp">–°</div>
+          <div class="wx-sub">
+            <div class="wx-desc" id="wx-desc">–</div>
+            <div class="wx-rng"  id="wx-rng">–</div>
+          </div>
+        </div>
+        <div class="wx-det">
+          <div class="di"><span class="dl">습도</span><span class="dv" id="wx-hum">–</span></div>
+          <div class="di"><span class="dl">바람</span><span class="dv" id="wx-wind">–</span></div>
+          <div class="di"><span class="dl">체감</span><span class="dv" id="wx-feel">–</span></div>
+          <div class="di"><span class="dl">자외선</span><span class="dv" id="wx-uvi">–</span></div>
+        </div>
+      </div>
+
+      <!-- 시계 카드 -->
+      <div class="card clock-card">
+        <div class="c-row">
+          <div class="c-time" id="c-time">--:--</div>
+          <div class="c-ap"   id="c-ap">--</div>
+        </div>
+        <!-- 💡 [수정] 년월일과 요일이 가로로 한 줄에 오도록 마크업 구조 변경 -->
+        <div class="c-date-row">
+          <div class="c-ymd" id="c-ymd"></div>
+          <div class="c-wd"  id="c-wd"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 예보 바 -->
+    <div class="card forecast-row" id="forecast-row">
+      <div class="f-item"><span class="f-d">–</span><span class="f-e">–</span><span class="f-hi">–</span><span class="f-lo">–</span></div>
+      <div class="f-item"><span class="f-d">–</span><span class="f-e">–</span><span class="f-hi">–</span><span class="f-lo">–</span></div>
+      <div class="f-item"><span class="f-d">–</span><span class="f-e">–</span><span class="f-hi">–</span><span class="f-lo">–</span></div>
+      <div class="f-item"><span class="f-d">–</span><span class="f-e">–</span><span class="f-hi">–</span><span class="f-lo">–</span></div>
+      <div class="f-item"><span class="f-d">–</span><span class="f-e">–</span><span class="f-hi">–</span><span class="f-lo">–</span></div>
+      <div class="f-item"><span class="f-d">–</span><span class="f-e">–</span><span class="f-hi">–</span><span class="f-lo">–</span></div>
+      <div class="f-item"><span class="f-d">–</span><span class="f-e">–</span><span class="f-hi">–</span><span class="f-lo">–</span></div>
+      <div class="f-item"><span class="f-d">–</span><span class="f-e">–</span><span class="f-hi">–</span><span class="f-lo">–</span></div>
+    </div>
+
+    <div class="updated" id="updated"></div>
+
+  </div>
+</div>
+
+<script>
+/* ── 상수 ── */
+const DAYS   = ['일','월','화','수','목','금','토'];
+const DAYSFULL = ['일요일','월요일','화요일','수요일','목요일','금요일','토요일'];
+const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+
+/* WMO 날씨 코드 → 이모지 + 설명 */
+function wmoInfo(code) {
+  if (code === 0)            return { e:'☀️',  d:'맑음' };
+  if (code <= 2)             return { e:'🌤️', d:'구름 조금' };
+  if (code === 3)            return { e:'☁️',  d:'흐림' };
+  if (code <= 49)            return { e:'🌫️', d:'안개' };
+  if (code <= 57)            return { e:'🌧️', d:'이슬비' };
+  if (code <= 67)            return { e:'🌧️', d:'비' };
+  if (code <= 77)            return { e:'❄️',  d:'눈' };
+  if (code <= 82)            return { e:'🌦️', d:'소나기' };
+  if (code <= 86)            return { e:'🌨️', d:'눈 소나기' };
+  if (code >= 95)            return { e:'⛈️',  d:'뇌우' };
+  return { e:'🌡️', d:'기타' };
+}
+
+function uviLabel(uvi) {
+  if (uvi < 3)  return '낮음';
+  if (uvi < 6)  return '보통';
+  if (uvi < 8)  return '높음';
+  if (uvi < 11) return '매우높음';
+  return '위험';
+}
+
+/* ── 시계 ── */
+function pad(n) { return String(n).padStart(2,'0'); }
+function tick() {
+  const now  = new Date();
+  const h24  = now.getHours();
+  const m    = now.getMinutes();
+  const ampm = h24 < 12 ? 'AM' : 'PM';
+  const h12  = h24 % 12 || 12;
+  
+  document.getElementById('c-time').innerHTML = h12 + '<span class="c-colon">:</span>' + pad(m);
+  document.getElementById('c-ap').textContent   = ampm;
+  document.getElementById('c-ymd').textContent  =
+    now.getFullYear() + '년 ' + MONTHS[now.getMonth()] + ' ' + now.getDate() + '일';
+  document.getElementById('c-wd').textContent   = DAYSFULL[now.getDay()];
+}
+tick();
+setInterval(tick, 1000);
+
+/* ── 날씨 렌더 ── */
+function renderWeather(data, cityName) {
+  const cur  = data.current;
+  const daily = data.daily;
+  const info = wmoInfo(cur.weather_code);
+
+  document.getElementById('wx-city').textContent = '📍 ' + cityName;
+  document.getElementById('wx-emo').textContent  = info.e;
+  document.getElementById('wx-tmp').textContent  = Math.round(cur.temperature_2m) + '°';
+  document.getElementById('wx-desc').textContent = info.d;
+  document.getElementById('wx-rng').textContent  =
+    '최고 ' + Math.round(daily.temperature_2m_max[0]) +
+    '° / 최저 ' + Math.round(daily.temperature_2m_min[0]) + '°';
+  document.getElementById('wx-hum').textContent  = cur.relative_humidity_2m + '%';
+  
+  document.getElementById('wx-wind').textContent = Math.round(cur.wind_speed_10m / 3.6) + 'm/s';
+  document.getElementById('wx-feel').textContent = Math.round(cur.apparent_temperature) + '°';
+  document.getElementById('wx-uvi').textContent  = uviLabel(cur.uv_index ?? 0);
+
+  /* 예보 바 */
+  const row   = document.getElementById('forecast-row');
+  const items = row.querySelectorAll('.f-item');
+  const today = new Date().getDay();
+  items.forEach((el, i) => {
+    const dayLabel = i === 0 ? '오늘' : DAYS[(today + i) % 7];
+    const wi = wmoInfo(daily.weather_code[i]);
+    el.children[0].textContent = dayLabel;
+    el.children[1].textContent = wi.e;
+    el.children[2].textContent = Math.round(daily.temperature_2m_max[i]) + '°';
+    el.children[3].textContent = Math.round(daily.temperature_2m_min[i]) + '°';
+  });
+
+  const now = new Date();
+  document.getElementById('updated').textContent =
+    '업데이트 ' + now.getHours() + ':' + pad(now.getMinutes());
+}
+
+/* ── 날씨 fetch ── */
+async function fetchWeather(lat, lon, cityName) {
+  const url =
+    'https://api.open-meteo.com/v1/forecast' +
+    '?latitude=' + lat + '&longitude=' + lon +
+    '&current=temperature_2m,apparent_temperature,relative_humidity_2m,' +
+    'wind_speed_10m,weather_code,uv_index' +
+    '&daily=temperature_2m_max,temperature_2m_min,weather_code' +
+    '&timezone=auto&forecast_days=8';
+  const res  = await fetch(url);
+  const data = await res.json();
+  renderWeather(data, cityName);
+}
+
+/* ── 역지오코딩 (nominatim) ── */
+async function getCityName(lat, lon) {
+  try {
+    const res  = await fetch(
+      'https://nominatim.openstreetmap.org/reverse?lat=' + lat +
+      '&lon=' + lon + '&format=json&accept-language=ko',
+      { headers: { 
+          'Accept-Language': 'ko',
+          'User-Agent': 'WeatherClockDashboard/1.0'
+        } 
+      }
+    );
+    const data = await res.json();
+    const a    = data.address;
+    return a.village || a.town || a.borough || a.city || a.suburb || a.county || a.state || '현재 위치';
+  } catch {
+    return '현재 위치';
+  }
+}
+
+/* ── 위치 → 날씨 ── */
+function setOverlay(msg) {
+  const ol = document.getElementById('overlay');
+  const ms = document.getElementById('overlay-msg');
+  if (msg) { ms.textContent = msg; ol.classList.add('show'); }
+  else      { ol.classList.remove('show'); }
+}
+
+async function loadWeather() {
+  setOverlay('위치 정보를 가져오는 중…');
+  navigator.geolocation.getCurrentPosition(
+    async pos => {
+      const { latitude: lat, longitude: lon } = pos.coords;
+      setOverlay('날씨 정보를 불러오는 중…');
+      try {
+        const city = await getCityName(lat, lon);
+        await fetchWeather(lat, lon, city);
+        setOverlay(null);
+      } catch {
+        setOverlay('날씨를 불러오지 못했습니다.\n잠시 후 다시 시도합니다.');
+        setTimeout(loadWeather, 30000);
+      }
+    },
+    err => {
+      fetchWeather(37.5665, 126.9780, '서울특별시').then(() => setOverlay(null));
+    },
+    { timeout: 10000, maximumAge: 300000 }
+  );
+}
+
+loadWeather();
+setInterval(loadWeather, 3600000);
+
+async function keepAwake() {
+  try {
+    if ('wakeLock' in navigator) {
+      await navigator.wakeLock.request('screen');
+    }
+  } catch {}
+}
+keepAwake();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') keepAwake();
+});
+</script>
+</body>
+</html>
